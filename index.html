@@ -562,7 +562,7 @@ async function processTraces(traces) {
         const buttons = trace.payload?.buttons || [];
         if (buttons.length) {
           choicesLive = true;
-          appendChoices(buttons.map(b => b.name || b.request?.payload?.label));
+          appendChoices(buttons); // pass full button objects with their request payloads
         }
         break;
       }
@@ -628,16 +628,18 @@ function showTyping(delay = 300) {
   });
 }
 
-function appendChoices(labels) {
+function appendChoices(buttons) {
   removeLoader();
   const wrap = document.createElement('div');
   wrap.className = 'choices';
   wrap.id = 'choices-wrap';
-  labels.forEach(label => {
+  buttons.forEach(button => {
+    const label = button.name || button.request?.payload?.label || '';
+    const request = button.request || { type: 'text', payload: label };
     const btn = document.createElement('button');
     btn.className = 'choice-btn';
     btn.textContent = label;
-    btn.addEventListener('click', () => handleChoice(label, wrap));
+    btn.addEventListener('click', () => handleChoice(label, request, wrap));
     wrap.appendChild(btn);
   });
   messagesEl.appendChild(wrap);
@@ -703,10 +705,27 @@ async function sendMessage(text) {
   }
 }
 
-async function handleChoice(label, wrap) {
+async function handleChoice(label, request, wrap) {
+  if (isWaiting) return;
   choicesLive = false;
   disableChoices(wrap);
-  await sendMessage(label);
+
+  // Show the user's selection as a bubble
+  appendUserBubble(label);
+  setInput(false);
+  isWaiting = true;
+
+  try {
+    // Send the button's own request object back to Voiceflow — this is what advances the flow
+    const traces = await vfInteract(request);
+    await processTraces(traces);
+  } catch(e) {
+    appendBotBubble('Something went wrong. Please try again.');
+    console.error(e);
+  } finally {
+    isWaiting = false;
+    if (!choicesLive) setInput(true);
+  }
 }
 
 function disableChoices(wrap) {
@@ -813,7 +832,7 @@ function showTyping(delay = 300) {
 }
 
 /* ── override appendChoices for side panel ── */
-function appendChoices(labels) {
+function appendChoices(buttons) {
   removeLoader();
   // Find last bot message outer and add choices panel to it
   const outers = messagesEl.querySelectorAll('.msg-outer:not(.user)');
@@ -822,11 +841,13 @@ function appendChoices(labels) {
   const panel = document.createElement('div');
   panel.className = 'choices-panel';
   panel.id = 'choices-wrap';
-  labels.forEach(label => {
+  buttons.forEach(button => {
+    const label = button.name || button.request?.payload?.label || '';
+    const request = button.request || { type: 'text', payload: label };
     const btn = document.createElement('button');
     btn.className = 'choice-btn';
     btn.textContent = label;
-    btn.addEventListener('click', () => handleChoice(label, panel));
+    btn.addEventListener('click', () => handleChoice(label, request, panel));
     panel.appendChild(btn);
   });
 
